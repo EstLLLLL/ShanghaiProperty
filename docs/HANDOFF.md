@@ -73,11 +73,18 @@ SUPABASE_STORAGE_BUCKET         SHproperty（用户在 Supabase Storage 已建�
   - 这一份 SQL 等价于 `prisma migrate dev --name init` 第一次会跑的内容
   - **下一步**：Esther 在 Supabase Dashboard → SQL Editor → New query → 整个粘进去 → Run
   - 跑完后建议在那边再跑一行 `select tablename from pg_tables where schemaname='public';` 验证 8 张表都建出来了
-- ⚠️ sync:amap 这一步：当前 `scripts/sync-amap-poi.ts` 用的是 Prisma，沙箱里 **也跑不通**（写库走 5432）。两条路：
-  - (a) 同样思路：脚本改成只调高德 API、把结果写成 SQL `INSERT` 文件，Esther 贴到 SQL Editor 跑
-  - (b) 把脚本改成用 `@supabase/supabase-js` 走 PostgREST（443），沙箱里能直接跑 —— 但 Next.js 应用层目前也是 Prisma，长远要么 app 全切到 supabase-js，要么 app 部署到 Vercel（Vercel 没代理，Prisma 能连 pooler）
-  - **建议先等 init.sql 在 Supabase 跑完，再决定 sync:amap 走哪条**
+- ⚠️ sync:amap 这一步：原 `scripts/sync-amap-poi.ts` 用 Prisma 写库，沙箱跑不通。**已重写**改用 `@supabase/supabase-js`（走 PostgREST，443），沙箱可跑。Next.js 应用层的 Prisma 不动 —— app 真正部署到 Vercel 后没代理限制，Prisma 能连 pooler。
 - 注意：项目用 Prisma 5.22.0，npx 不带版本会装 7.x（CLI flag 改名）。一定要 `node_modules/.bin/prisma` 或先 `npm i`
+- 注意 env：`NEXT_PUBLIC_SUPABASE_URL` 应该是裸 URL `https://<ref>.supabase.co`，但 Esther 实际配的带了 `/rest/v1/` 后缀。已在 `lib/supabase.ts` 加 `normalizeSupabaseUrl()` 兼容两种写法，脚本和 app 都用这个 helper。env 里要不要清是后话，不急。
+
+### 2026-05-26 末状态
+
+- `prisma/sql/init.sql` 已生成，Esther 在 Supabase SQL Editor 跑成功，8 张表全建（含 _prisma_migrations 是 7+1）
+- `npm run sync:amap -- --district pudong` 跑通，225 个浦东小区入库（汤臣一品、鹤沙航城等都在）
+- 下一步建议：
+  1. `npm run sync:amap` 跑全上海（约 16 区 × 200~2500 不等）
+  2. `npm run dev` 起本地，访问 `/map` 验证地图能渲染 + 看到 marker
+  3. 网上房地产爬虫 `scripts/crawl-fangdi.ts` 的 selector 还是占位的，等 Esther 准备好再补
 
 ## 跟用户沟通的偏好（基于上一个会话）
 
