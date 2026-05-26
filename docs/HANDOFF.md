@@ -60,6 +60,28 @@ SUPABASE_STORAGE_BUCKET         SHproperty（用户在 Supabase Storage 已建�
 - **Supabase Storage bucket**：用户的 bucket 叫 `SHproperty`，需要确认是 public（看楼照片要直接 URL 访问）。
 - **fangdi.com.cn 爬虫**：DOM selector 是占位的，跑会报"未填 selector"。等用户准备好再补。
 
+### 2026-05-26 会话补充：网络策略还是没放开
+
+- 在分支 `claude/tender-noether-hm7tc` 上验证：env vars 全部都注入了
+- 但 Postgres 端口仍然不通，HTTPS 通：
+
+  | 目标 | 结果 |
+  | --- | --- |
+  | `aws-1-ap-northeast-1.pooler.supabase.com:443` | ✅ |
+  | 同主机 `:5432`（DIRECT_URL 走的） | ❌ TCP refused/timeout |
+  | 同主机 `:6543`（DATABASE_URL pooler） | ❌ |
+  | `https://<ref>.supabase.co/rest/v1/` | ✅ HTTP 404（PostgREST 正常） |
+  | `db.<ref>.supabase.co` | DNS 只剩 IPv6，沙箱 IPv4-only，走不了 |
+
+- 结论：当前 environment 实际只放行了 443。**用户答复说会去网页端把网络策略改成 Full 再开新会话**。
+- 注意：`DIRECT_URL` 现在指的是 `pooler.supabase.com:5432`（pooler 的 session mode），不是真正的 db direct。
+  Supabase 现在已经把 db direct 主机改成纯 IPv6，IPv4 沙箱本来就连不上，所以 migrate 也只能走 pooler:5432 这条路——这是对的，别改回去。
+- 新会话开始时第一步先重测：
+  ```bash
+  timeout 5 bash -c "echo > /dev/tcp/aws-1-ap-northeast-1.pooler.supabase.com/5432" && echo OK
+  ```
+  通了再 `npx prisma migrate dev --name init`，再 `npm run sync:amap -- --district pudong`。
+
 ## 跟用户沟通的偏好（基于上一个会话）
 
 - 用中文，简洁
