@@ -28,9 +28,10 @@
 1. **验证 env vars 已注入**：`env | grep -E "(SUPABASE|AMAP|DATABASE_URL)"` 应该能看到值
    - 如果没有，提醒用户去 Claude Code on the web → 当前 environment → Environment variables 检查
    - 必需的变量列表见 `.env.example`
-2. **跑 Prisma migration**：`npx prisma migrate dev --name init`
+2. **跑 Prisma migration**：`node_modules/.bin/prisma migrate dev --name init`
+   - 必须用本地 prisma（package.json 锁 5.x），`npx prisma` 会拉 7.x 报 schema 不兼容
    - 这会在 Supabase Postgres 里建出所有表
-   - 用 `DIRECT_URL`（5432 端口，非 pooler）
+   - DIRECT_URL 实际指向 `aws-1-ap-northeast-1.pooler.supabase.com:5432`（session pooler）
 3. **同步高德 POI**：`npm run sync:amap -- --district pudong` 先试一个区
    - 跑通后再 `npm run sync:amap` 全上海
 4. **启动 dev server**：`npm run dev`
@@ -56,7 +57,14 @@ SUPABASE_STORAGE_BUCKET         SHproperty（用户在 Supabase Storage 已建�
 
 ### 🚧 已知约束
 
-- **云沙箱网络**：之前是 Trusted 策略，连不到 Supabase 5432。用户已改成 Full（或 Custom 加 supabase.co + pooler.supabase.com）。新会话应该能通。
+- **云沙箱网络**：Full 策略实测仍挡 Postgres 端口（DNS 通、443 通、5432/6543 挂）。
+  必须用 **Custom**，至少加这些规则：
+  - `aws-1-ap-northeast-1.pooler.supabase.com:5432`（migration / session pooler）
+  - `aws-1-ap-northeast-1.pooler.supabase.com:6543`（runtime / transaction pooler）
+  - `*.supabase.co:443`（Storage、REST）
+  - `*.supabase.in:443`
+  - `restapi.amap.com:443` / `webapi.amap.com:443`（高德 Web 服务）
+  改完策略后**必须重启会话**，旧会话不会热更新网络规则。
 - **Supabase Storage bucket**：用户的 bucket 叫 `SHproperty`，需要确认是 public（看楼照片要直接 URL 访问）。
 - **fangdi.com.cn 爬虫**：DOM selector 是占位的，跑会报"未填 selector"。等用户准备好再补。
 
