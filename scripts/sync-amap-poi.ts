@@ -49,13 +49,26 @@ async function fetchPage(adcode: string, page: number, pageSize = 25) {
   url.searchParams.set("page_num", String(page));
   url.searchParams.set("show_fields", "business");
 
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`AMap HTTP ${res.status}`);
-  const data = (await res.json()) as { status: string; info: string; pois?: AMapPoi[] };
-  if (data.status !== "1") {
-    throw new Error(`AMap API error: ${data.info}`);
+  // Retry 5xx and transient errors with exponential backoff
+  const maxAttempts = 4;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const res = await fetch(url);
+      if (res.status >= 500 && res.status < 600) {
+        throw new Error(`AMap HTTP ${res.status}`);
+      }
+      if (!res.ok) throw new Error(`AMap HTTP ${res.status}`);
+      const data = (await res.json()) as { status: string; info: string; pois?: AMapPoi[] };
+      if (data.status !== "1") throw new Error(`AMap API error: ${data.info}`);
+      return data.pois ?? [];
+    } catch (err) {
+      if (attempt === maxAttempts) throw err;
+      const wait = 1000 * 2 ** (attempt - 1);
+      console.warn(`  fetch attempt ${attempt} failed (${(err as Error).message}); retrying in ${wait}ms`);
+      await sleep(wait);
+    }
   }
-  return data.pois ?? [];
+  return [];
 }
 
 type PropertyRow = {
@@ -154,9 +167,24 @@ async function main() {
         })()
       : SH_DISTRICTS;
 
+  const results: { district: string; ok: boolean; error?: string }[] = [];
   for (const d of targets) {
-    await syncDistrict(d);
+    try {
+      await syncDistrict(d);
+      results.push({ district: d.cn, ok: true });
+    } catch (err) {
+      const msg = (err as Error).message;
+      console.error(`[${d.cn}] failed: ${msg}`);
+      results.push({ district: d.cn, ok: false, error: msg });
+    }
   }
+
+  console.log("\n--- summary ---");
+  for (const r of results) {
+    console.log(`${r.ok ? "✓" : "✗"} ${r.district}${r.error ? "  " + r.error : ""}`);
+  }
+  const failed = results.filter((r) => !r.ok);
+  if (failed.length > 0) process.exit(1);
 }
 
 main().catch((err) => {
