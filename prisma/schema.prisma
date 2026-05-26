@@ -1,0 +1,144 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum PropertySource {
+  AMAP
+  FANGDI
+  MANUAL
+}
+
+enum PropertyType {
+  NEW
+  SECONDHAND
+  BOTH
+}
+
+model Property {
+  id                    String         @id @default(cuid())
+  source                PropertySource
+  sourceId              String
+  name                  String
+  type                  PropertyType   @default(BOTH)
+  developer             String?
+  propertyCompany       String?
+  address               String?
+  district              String?
+  lng                   Float
+  lat                   Float
+  phone                 String?
+  yearBuilt             Int?
+  plotRatio             Float?
+  greenRatio            Float?
+  deliveryDate          DateTime?
+  lianjiaUrl            String?
+  manualUnitPrice       Float?
+  manualPriceUpdatedAt  DateTime?
+  notes                 String?
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+
+  batches    NewHouseBatch[]
+  houseTypes HouseType[]
+  visits     Visit[]
+  tags       PropertyTag[]
+
+  @@unique([source, sourceId])
+  @@index([district])
+  @@index([type])
+  @@index([lng, lat])
+  @@map("properties")
+}
+
+model NewHouseBatch {
+  id              String    @id @default(cuid())
+  propertyId      String
+  presaleLicense  String?
+  batchName       String?
+  totalUnits      Int?
+  soldUnits       Int?
+  avgPrice        Float?
+  priceRangeMin   Float?
+  priceRangeMax   Float?
+  openDate        DateTime?
+  recordedAt      DateTime  @default(now())
+  sourceUrl       String?
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@index([propertyId])
+  @@map("new_house_batches")
+}
+
+model HouseType {
+  id            String  @id @default(cuid())
+  propertyId    String
+  rooms         String?
+  area          Float?
+  orientation   String?
+  totalPriceEst Float?
+  notes         String?
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@index([propertyId])
+  @@map("house_types")
+}
+
+model Visit {
+  id                   String   @id @default(cuid())
+  propertyId           String
+  visitedAt            DateTime
+  overallRating        Int?
+  locationRating       Int?
+  layoutRating         Int?
+  priceRating          Int?
+  propertyMgmtRating   Int?
+  salesAttitudeRating  Int?
+  notes                String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  property Property     @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  photos   VisitPhoto[]
+
+  @@index([propertyId])
+  @@index([visitedAt])
+  @@map("visits")
+}
+
+model VisitPhoto {
+  id      String  @id @default(cuid())
+  visitId String
+  url     String
+  caption String?
+
+  visit Visit @relation(fields: [visitId], references: [id], onDelete: Cascade)
+
+  @@index([visitId])
+  @@map("visit_photos")
+}
+
+model Tag {
+  id         String        @id @default(cuid())
+  name       String        @unique
+  properties PropertyTag[]
+
+  @@map("tags")
+}
+
+model PropertyTag {
+  propertyId String
+  tagId      String
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  tag      Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([propertyId, tagId])
+  @@map("property_tags")
+}
