@@ -28,7 +28,9 @@
 1. **验证 env vars 已注入**：`env | grep -E "(SUPABASE|AMAP|DATABASE_URL)"` 应该能看到值
    - 如果没有，提醒用户去 Claude Code on the web → 当前 environment → Environment variables 检查
    - 必需的变量列表见 `.env.example`
-2. **跑 Prisma migration**：`npx prisma migrate dev --name init`
+   - ⚠️ 注意：值**不要**包引号。上一会话发现 `DATABASE_URL` 结尾混进了 `%22`（即 `"` 编码），是因为整个值被双引号包了。
+2. **跑 Prisma migration**：`npm install` 然后 `npx prisma migrate dev --name init`
+   - ⚠️ 一定要先 `npm install`，否则 `npx prisma` 会拉到 v7 而 schema 是 v5 语法（v7 把 `url`/`directUrl` 搬到 `prisma.config.ts` 了）
    - 这会在 Supabase Postgres 里建出所有表
    - 用 `DIRECT_URL`（5432 端口，非 pooler）
 3. **同步高德 POI**：`npm run sync:amap -- --district pudong` 先试一个区
@@ -56,7 +58,7 @@ SUPABASE_STORAGE_BUCKET         SHproperty（用户在 Supabase Storage 已建�
 
 ### 🚧 已知约束
 
-- **云沙箱网络**：之前是 Trusted 策略，连不到 Supabase 5432。用户已改成 Full（或 Custom 加 supabase.co + pooler.supabase.com）。新会话应该能通。
+- **云沙箱网络**：之前是 Trusted 策略，连不到 Supabase 5432。这一会话开机时仍是只放 HTTPS，Postgres 端口 timeout。需要用户在 web 端把当前 environment 的 Network access 改成 Full（或 Custom 全放）。设置改完后**必须开新 session**才生效（env 和网络都是容器启动时确定的）。
 - **Supabase Storage bucket**：用户的 bucket 叫 `SHproperty`，需要确认是 public（看楼照片要直接 URL 访问）。
 - **fangdi.com.cn 爬虫**：DOM selector 是占位的，跑会报"未填 selector"。等用户准备好再补。
 
