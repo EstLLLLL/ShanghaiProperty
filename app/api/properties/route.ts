@@ -1,74 +1,80 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { Prisma, PropertyType } from "@prisma/client";
+import { supabaseAdmin } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
+type PropertyRow = {
+  id: string;
+  name: string;
+  type: "NEW" | "SECONDHAND" | "BOTH";
+  district: string | null;
+  lng: number;
+  lat: number;
+  manualUnitPrice: number | null;
+  new_house_batches: { avgPrice: number | null; recordedAt: string }[] | null;
+  visits: { id: string }[] | null;
+};
 
+export async function GET(req: NextRequest) {
+  if (!supabaseAdmin) {
+    return NextResponse.json({ error: "Supabase not configured" }, { status: 500 });
+  }
+
+  const { searchParams } = new URL(req.url);
   const bbox = searchParams.get("bbox"); // "minLng,minLat,maxLng,maxLat"
   const district = searchParams.get("district");
-  const type = searchParams.get("type") as PropertyType | null;
+  const type = searchParams.get("type");
   const minPrice = numParam(searchParams.get("minPrice"));
   const maxPrice = numParam(searchParams.get("maxPrice"));
   const onlyVisited = searchParams.get("visited") === "1";
   const limit = Math.min(parseInt(searchParams.get("limit") ?? "2000", 10), 5000);
 
-  const where: Prisma.PropertyWhereInput = {};
+  let q = supabaseAdmin
+    .from("properties")
+    .select(
+      "id,name,type,district,lng,lat,manualUnitPrice,new_house_batches(avgPrice,recordedAt),visits(id)"
+    )
+    .limit(limit);
 
   if (bbox) {
     const [minLng, minLat, maxLng, maxLat] = bbox.split(",").map(Number);
     if ([minLng, minLat, maxLng, maxLat].every(Number.isFinite)) {
-      where.lng = { gte: minLng, lte: maxLng };
-      where.lat = { gte: minLat, lte: maxLat };
+      q = q.gte("lng", minLng).lte("lng", maxLng).gte("lat", minLat).lte("lat", maxLat);
     }
   }
-  if (district) where.district = district;
-  if (type) where.type = type;
-  if (onlyVisited) where.visits = { some: {} };
+  if (district) q = q.eq("district", district);
+  if (type) q = q.eq("type", type);
 
-  // Price filter: union of fangdi avg batch price and manual unit price
-  if (minPrice != null || maxPrice != null) {
-    const priceConds: Prisma.PropertyWhereInput[] = [];
-    const range: Prisma.FloatNullableFilter = {};
-    if (minPrice != null) range.gte = minPrice;
-    if (maxPrice != null) range.lte = maxPrice;
-    priceConds.push({ manualUnitPrice: range });
-    priceConds.push({ batches: { some: { avgPrice: range } } });
-    where.OR = priceConds;
+  const { data, error } = await q;
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  const props = await prisma.property.findMany({
-    where,
-    take: limit,
-    select: {
-      id: true,
-      name: true,
-      type: true,
-      district: true,
-      lng: true,
-      lat: true,
-      manualUnitPrice: true,
-      _count: { select: { visits: true } },
-      batches: {
-        orderBy: { recordedAt: "desc" },
-        take: 1,
-        select: { avgPrice: true },
-      },
-    },
-  });
+  const rows = (data as PropertyRow[]) ?? [];
 
-  const result = props.map((p) => ({
-    id: p.id,
-    name: p.name,
-    type: p.type,
-    district: p.district,
-    lng: p.lng,
-    lat: p.lat,
-    avgPrice: p.batches[0]?.avgPrice ?? p.manualUnitPrice ?? null,
-    visitCount: p._count.visits,
-  }));
+  const result = rows
+    .map((p) => {
+      const latestBatch = p.new_house_batches?.sort((a, b) =>
+        (b.recordedAt ?? "").localeCompare(a.recordedAt ?? "")
+      )[0];
+      const avgPrice = latestBatch?.avgPrice ?? p.manualUnitPrice ?? null;
+      return {
+        id: p.id,
+        name: p.name,
+        type: p.type,
+        district: p.district,
+        lng: p.lng,
+        lat: p.lat,
+        avgPrice,
+        visitCount: p.visits?.length ?? 0,
+      };
+    })
+    .filter((r) => {
+      if (onlyVisited && r.visitCount === 0) return false;
+      if (minPrice != null && (r.avgPrice == null || r.avgPrice < minPrice)) return false;
+      if (maxPrice != null && (r.avgPrice == null || r.avgPrice > maxPrice)) return false;
+      return true;
+    });
 
   return NextResponse.json({ properties: result });
 }
