@@ -29,28 +29,35 @@ export async function GET(req: NextRequest) {
   const onlyVisited = searchParams.get("visited") === "1";
   const limit = Math.min(parseInt(searchParams.get("limit") ?? "2000", 10), 5000);
 
-  let q = supabaseAdmin
-    .from("properties")
-    .select(
-      "id,name,type,district,lng,lat,manualUnitPrice,new_house_batches(avgPrice,recordedAt),visits(id)"
-    )
-    .limit(limit);
+  // Paginate around Supabase's 1000-row per-request cap.
+  const PAGE_SIZE = 1000;
+  const rows: PropertyRow[] = [];
+  for (let offset = 0; offset < limit; offset += PAGE_SIZE) {
+    const end = Math.min(offset + PAGE_SIZE, limit) - 1;
+    let q = supabaseAdmin
+      .from("properties")
+      .select(
+        "id,name,type,district,lng,lat,manualUnitPrice,new_house_batches(avgPrice,recordedAt),visits(id)"
+      )
+      .range(offset, end);
 
-  if (bbox) {
-    const [minLng, minLat, maxLng, maxLat] = bbox.split(",").map(Number);
-    if ([minLng, minLat, maxLng, maxLat].every(Number.isFinite)) {
-      q = q.gte("lng", minLng).lte("lng", maxLng).gte("lat", minLat).lte("lat", maxLat);
+    if (bbox) {
+      const [minLng, minLat, maxLng, maxLat] = bbox.split(",").map(Number);
+      if ([minLng, minLat, maxLng, maxLat].every(Number.isFinite)) {
+        q = q.gte("lng", minLng).lte("lng", maxLng).gte("lat", minLat).lte("lat", maxLat);
+      }
     }
-  }
-  if (district) q = q.eq("district", district);
-  if (type) q = q.eq("type", type);
+    if (district) q = q.eq("district", district);
+    if (type) q = q.eq("type", type);
 
-  const { data, error } = await q;
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    const { data, error } = await q;
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+    const batch = (data as PropertyRow[]) ?? [];
+    rows.push(...batch);
+    if (batch.length < PAGE_SIZE) break;
   }
-
-  const rows = (data as PropertyRow[]) ?? [];
 
   const result = rows
     .map((p) => {
