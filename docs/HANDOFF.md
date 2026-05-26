@@ -60,27 +60,24 @@ SUPABASE_STORAGE_BUCKET         SHproperty（用户在 Supabase Storage 已建�
 - **Supabase Storage bucket**：用户的 bucket 叫 `SHproperty`，需要确认是 public（看楼照片要直接 URL 访问）。
 - **fangdi.com.cn 爬虫**：DOM selector 是占位的，跑会报"未填 selector"。等用户准备好再补。
 
-### 2026-05-26 会话补充：网络策略还是没放开
+### 2026-05-26 会话补充：云沙箱永远连不上 Postgres（架构限制）
 
-- 在分支 `claude/tender-noether-hm7tc` 上验证：env vars 全部都注入了
-- 但 Postgres 端口仍然不通，HTTPS 通：
-
-  | 目标 | 结果 |
-  | --- | --- |
-  | `aws-1-ap-northeast-1.pooler.supabase.com:443` | ✅ |
-  | 同主机 `:5432`（DIRECT_URL 走的） | ❌ TCP refused/timeout |
-  | 同主机 `:6543`（DATABASE_URL pooler） | ❌ |
-  | `https://<ref>.supabase.co/rest/v1/` | ✅ HTTP 404（PostgREST 正常） |
-  | `db.<ref>.supabase.co` | DNS 只剩 IPv6，沙箱 IPv4-only，走不了 |
-
-- 结论：当前 environment 实际只放行了 443。**用户答复说会去网页端把网络策略改成 Full 再开新会话**。
-- 注意：`DIRECT_URL` 现在指的是 `pooler.supabase.com:5432`（pooler 的 session mode），不是真正的 db direct。
-  Supabase 现在已经把 db direct 主机改成纯 IPv6，IPv4 沙箱本来就连不上，所以 migrate 也只能走 pooler:5432 这条路——这是对的，别改回去。
-- 新会话开始时第一步先重测：
-  ```bash
-  timeout 5 bash -c "echo > /dev/tcp/aws-1-ap-northeast-1.pooler.supabase.com/5432" && echo OK
-  ```
-  通了再 `npx prisma migrate dev --name init`，再 `npm run sync:amap -- --district pudong`。
+- 实测端口扫描：环境只放行 80/443，DNS:53、SSH:22、Postgres:5432/6543 一律 BLOCKED
+- 查 https://code.claude.com/docs/en/claude-code-on-the-web 后确认：
+  > Environments run behind an HTTP/HTTPS network proxy for security and abuse prevention purposes.
+  > All outbound internet traffic passes through this proxy.
+- 也就是说沙箱所有出站强制走 HTTP/HTTPS 代理。**Full vs Trusted 只控制允许哪些域名**，不控制协议——代理本身只懂 HTTP/HTTPS
+- 结论：**`prisma migrate dev` 永远跑不通**，不管网络策略选什么。Esther 之前以为改 Full 能解决，是误会，已澄清
+- 选定方案：**离线生成 SQL → 用户手动贴到 Supabase SQL Editor 跑**
+  - 已用 `node_modules/.bin/prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script` 生成 `prisma/sql/init.sql`（commit 在这次会话里）
+  - 这一份 SQL 等价于 `prisma migrate dev --name init` 第一次会跑的内容
+  - **下一步**：Esther 在 Supabase Dashboard → SQL Editor → New query → 整个粘进去 → Run
+  - 跑完后建议在那边再跑一行 `select tablename from pg_tables where schemaname='public';` 验证 8 张表都建出来了
+- ⚠️ sync:amap 这一步：当前 `scripts/sync-amap-poi.ts` 用的是 Prisma，沙箱里 **也跑不通**（写库走 5432）。两条路：
+  - (a) 同样思路：脚本改成只调高德 API、把结果写成 SQL `INSERT` 文件，Esther 贴到 SQL Editor 跑
+  - (b) 把脚本改成用 `@supabase/supabase-js` 走 PostgREST（443），沙箱里能直接跑 —— 但 Next.js 应用层目前也是 Prisma，长远要么 app 全切到 supabase-js，要么 app 部署到 Vercel（Vercel 没代理，Prisma 能连 pooler）
+  - **建议先等 init.sql 在 Supabase 跑完，再决定 sync:amap 走哪条**
+- 注意：项目用 Prisma 5.22.0，npx 不带版本会装 7.x（CLI flag 改名）。一定要 `node_modules/.bin/prisma` 或先 `npm i`
 
 ## 跟用户沟通的偏好（基于上一个会话）
 
