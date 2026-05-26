@@ -80,11 +80,16 @@ SUPABASE_STORAGE_BUCKET         SHproperty（用户在 Supabase Storage 已建�
 ### 2026-05-26 末状态
 
 - `prisma/sql/init.sql` 已生成，Esther 在 Supabase SQL Editor 跑成功，8 张表全建（含 _prisma_migrations 是 7+1）
-- `npm run sync:amap -- --district pudong` 跑通，225 个浦东小区入库（汤臣一品、鹤沙航城等都在）
+- `npm run sync:amap` 跑全 16 区已完成，共 **3550 行**入库。14 区拿到 AMap 的 225 条上限，静安/宝山各 200
+- **重要：高德文本搜索每个 region+keyword 组合实际最多返回 ~225 条**（文档说 100 页其实是骗的）。所以浦东实际几千个小区只拿到 225。要扩覆盖率得：
+  - 网格切分（按 bbox 多次搜，`polygon` 参数）
+  - 或者按更细的 POI 子分类 / 关键词分多次搜
+  - 优先级不高，先把骨架打通再考虑
+- 已加重试逻辑：`fetchPage` 对 5xx 4 次指数退避；district 级失败也不会中断其他区
 - 下一步建议：
-  1. `npm run sync:amap` 跑全上海（约 16 区 × 200~2500 不等）
-  2. `npm run dev` 起本地，访问 `/map` 验证地图能渲染 + 看到 marker
-  3. 网上房地产爬虫 `scripts/crawl-fangdi.ts` 的 selector 还是占位的，等 Esther 准备好再补
+  1. `npm run dev` 起本地，访问 `/map` 验证地图能渲染 + 看到 marker（3550 个点需要测聚合性能）
+  2. 网上房地产爬虫 `scripts/crawl-fangdi.ts` 的 selector 还是占位的，等 Esther 准备好再补
+  3. 提高 AMap 覆盖率（网格切分）—— 可选
 
 ## 跟用户沟通的偏好（基于上一个会话）
 
