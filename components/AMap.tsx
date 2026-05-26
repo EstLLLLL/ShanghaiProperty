@@ -51,19 +51,18 @@ export default function AMap({
           viewMode: "2D",
         });
         mapRef.current = map;
-        map.on("moveend", () => {
+        const emitBounds = () => {
           if (!onBoundsChange) return;
           const b = map.getBounds();
+          if (!b) return;
           const sw = b.getSouthWest();
           const ne = b.getNorthEast();
+          if (!sw || !ne) return;
           onBoundsChange([sw.getLng(), sw.getLat(), ne.getLng(), ne.getLat()]);
-        });
-        if (onBoundsChange) {
-          const b = map.getBounds();
-          const sw = b.getSouthWest();
-          const ne = b.getNorthEast();
-          onBoundsChange([sw.getLng(), sw.getLat(), ne.getLng(), ne.getLat()]);
-        }
+        };
+        map.on("moveend", emitBounds);
+        map.on("zoomend", emitBounds);
+        map.on("complete", emitBounds);
       })
       .catch((err) => {
         console.error("AMap load failed", err);
